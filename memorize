@@ -1,0 +1,150 @@
+#!/usr/bin/env python
+
+import sqlite3
+import argparse
+import re
+import sys
+import docx        
+import os
+
+class WordsDatabase(object):
+    table_name = 'dictionary'
+
+    def __init__(self):
+        self.connection = sqlite3.connect('/home/archer/englishWords.db')
+        self.cursor = self.connection.cursor()
+        self.entries = {}
+        self.fetch_data()
+        self.new_entries = {}
+        self.entry_pattern = r'\w+ - \w+'
+
+    def fetch_data(self, conditions=None):      
+        result = []
+        if conditions:
+            for condition in conditions:
+                #result = self.cursor.execute("SELECT * FROM {table} WHERE word='{0}'".format(condition, table=WordsDatabase.table_name)).fetchall()
+                result.extend(self.cursor.execute("SELECT * FROM {table} WHERE word='{0}'".format(condition, table=WordsDatabase.table_name)).fetchall())
+        else:
+            result = self.cursor.execute("SELECT * FROM {table} ".format(table=WordsDatabase.table_name)).fetchall()
+        self.entries = dict(result)
+
+    def insert_data(self):
+        #if store_word in self.entries:
+        #    print('"{0}" is already in database.'.format(store_word))
+         #   return False
+        for entry in self.new_entries:
+            self.cursor.execute("INSERT INTO {table} VALUES('{0}', '{1}')".format(
+                                entry, self.new_entries[entry], table=WordsDatabase.table_name)                                             
+                               )
+
+    def add(self, word, meaning):
+       if word not in self.entries:
+           self.new_entries[word] = meaning
+           return True
+       else:
+           print('"{0}" is already in database.'.format(word))
+           return False
+    def remove(self, words):
+        for word in words:
+            self.cursor.execute("DELETE FROM {table} WHERE word='{0}'".format(word, table=WordsDatabase.table_name))
+    def update(self, oldWord, newWord, meaning=None):
+        self.cursor.execute("UPDATE {table} SET word='{0}', meaning='{1}' WHERE word='{2}'".format(newWord, meaning, oldWord, table=WordsDatabase.table_name))
+    def merge(self, source_file):
+        for line in source_file:
+            line = line.strip()
+            if re.search(self.entry_pattern, line):
+                word, meaning = line.split(' - ')
+                self.add(word, meaning)
+        source_file.close()
+    
+    def dump_toDocx(self, save_path='/home/archer/entries_list.docx'):
+        entries_doc = docx.Document()
+        for entry in sorted(self.entries):
+            current_paragraph = entries_doc.add_paragraph()
+            current_paragraph.paragraph_format.space_after = docx.shared.Pt(4)
+            current_paragraph.paragraph_format.line_spacing = 1.0
+            word = current_paragraph.add_run(entry)
+            word.bold = True
+            word.font.name = 'Dejavu Serif'
+            word.font.size = docx.shared.Pt(15)
+            meaning = current_paragraph.add_run(' - ' + self.entries[entry])
+            meaning.font.name = 'Dejavu Serif'
+            meaning.font.size = docx.shared.Pt(15)
+        entries_doc.save(save_path)
+
+
+    def dump_toPdf(self):
+        pass
+
+    def dump_toTestFile(self, test_path='/home/archer/testFile'):
+        with open(test_path, 'w') as testFile:
+            for word in sorted(self.entries):
+                testFile.write(word + " - " + "\n")
+
+
+
+
+    def list(self):
+        for entry in sorted(self.entries):
+            print(" - ".join((entry, self.entries[entry])))
+        if len(self.entries) > 1:
+            print('_' * 25, '\nTotal entries listed: {}'.format(len(self.entries)))
+
+def main():
+    englishWords_db = WordsDatabase()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('entry', nargs='*', type=str, help="word 'coma separated values of corresponding word meanings.'")
+    parser.add_argument('-l', '--list', nargs='*', action="append", default=[])
+    parser.add_argument('-r', '--remove', nargs='+', dest='remove_word')
+    parser.add_argument('-u', '--update', nargs=3, help="oldWord newWord meaning")
+    parser.add_argument('-m', '--merge', nargs=1, type=argparse.FileType('rt'), dest='source_file')
+    #parser.add_argument('-f', nargs='*', action="store", default=[])
+    parser.add_argument('-d', '--dump', nargs='*', action="append", default=[])
+    parser.add_argument('-t', '--test', nargs='*', action="append", default=[])
+    arguments = ['list', 'remove', 'update', 'merge', 'dump', 'entry']
+    args = parser.parse_args()
+
+    if args.entry:
+        result = englishWords_db.add(*args.entry)
+        if result:
+            englishWords_db.insert_data()
+    
+    if args.list:
+        englishWords_db.fetch_data(args.list[0])
+        englishWords_db.list()
+
+    if args.dump:   
+        if not args.dump[0]:
+           englishWords_db.dump_toDocx()
+        for lista in args.dump:
+            for el_listy in lista:
+                if el_listy:
+                     englishWords_db.dump_toDocx(el_listy)
+                     break
+
+    if args.remove_word:
+        englishWords_db.remove(args.remove_word)
+    
+    if args.update:
+        englishWords_db.update(*args.update)
+
+    if args.source_file:
+        englishWords_db.merge(args.source_file[0])
+        englishWords_db.insert_data()
+
+    if args.test:
+        if not args.test[0]:
+            englishWords_db.dump_toTestFile()
+        for lista in args.test:
+            for el_listy in lista:
+                englishWords_db.dump_toTestFile(el_listy)
+
+    englishWords_db.connection.commit()
+    englishWords_db.connection.close()
+
+  	
+   
+if __name__ == '__main__':
+	main()
+    
+

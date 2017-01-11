@@ -1,0 +1,87 @@
+#!/usr/bin/env python
+
+import subprocess as sp
+import sys
+import os
+import argparse
+import configparser
+import getpass
+
+def main():
+    cfg_parser = configparser.SafeConfigParser()  
+    # Establish configuration file path - use working directory if there's no config at user's home directory. 
+    usr_home_dir = os.path.join('/home', getpass.getuser())
+    program_name = os.path.basename(sys.argv[0])
+    config_name = '.' + program_name + '.ini'
+    config_file = os.path.join(usr_home_dir, config_name)
+    if not os.path.exists(config_file) or not os.path.isfile(config_file):
+        config_file = sys.argv[0]
+    cfg_parser.read(config_file)
+    
+    
+    known_subjects=[]
+    # create representation of configuration file in memory using python built-in data type dict
+    subject = {}
+    for name in cfg_parser.sections():
+        subject[name] = {}
+        if name != 'settings':
+            known_subjects.append(name)
+        for option in cfg_parser.options(name):
+            subject[name][option] = cfg_parser.get(name, option)
+    
+    args_parser = argparse.ArgumentParser(description='Automatically launch applications for given subject defined in \".learn.ini\" config file.')
+    args_parser.add_argument('subject', type=str, choices=known_subjects, action='store')
+    args_parser.add_argument(
+                              '-k', '--kill',
+                              help='kill all programs associated with given subject',
+                              action='store_true', default=False
+                            )
+    args_parser.add_argument('-s', '--switch', action='store_true', help='switch to given subject')
+    args = args_parser.parse_args()
+    current_subject_name = args.subject
+    kill = args.kill
+    switch = args.switch
+  
+    # abbreviations
+    if switch:
+        original_subject_name = current_subject_name
+        current_subject_name = subject['settings']['recent_subject']
+        kill = True
+
+    ebook_reader = subject['settings']['ebook_reader'].split()
+    browser = subject['settings']['browser'].split()
+    application_killer  = subject['settings']['application_killer'].split()
+    urls = subject[current_subject_name]['urls'].splitlines()
+    ebook_path = subject[current_subject_name]['ebook_path']
+    ebooks = subject[current_subject_name]['ebooks'] 
+    ebooks = [os.path.join(ebook_path, ebook) for ebook in ebooks.splitlines()]
+    auxiliary_applications = subject[current_subject_name]['auxiliary_applications'].splitlines()
+
+    if kill:
+        # separating application name from its potential arguments and forwarding it to the application_killer
+        sp.Popen(application_killer + [ebook_reader[0]])
+        sp.Popen(application_killer + [browser[0]])
+        apps = []
+        for app in auxiliary_applications:
+            apps.append(app.split(' '))
+        for app in apps:
+            sp.Popen(application_killer + [app[0]])
+        if switch:
+          sp.Popen([program_name] + [original_subject_name])
+        sys.exit()
+    # launch browser
+    if urls:
+        sp.Popen(browser + urls)
+    # launch auxiliary applications
+    if auxiliary_applications:
+        for application in auxiliary_applications:
+            sp.Popen(application.split(' '))
+    # launch ebook reader
+    if ebooks:
+        for ebook in ebooks:
+            sp.Popen(ebook_reader + [ebook])
+    cfg_parser.set('settings', 'recent_subject', current_subject_name)
+    cfg_parser.write(open(config_file, 'w'))
+
+if __name__ == '__main__':
+    main()
